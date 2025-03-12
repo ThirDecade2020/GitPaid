@@ -1,4 +1,4 @@
-require('dotenv').config();  // Load environment variables from .env
+require('dotenv-expand').expand(require('dotenv').config());  // Load environment variables from .env
 
 const express = require('express');
 const passport = require('passport');
