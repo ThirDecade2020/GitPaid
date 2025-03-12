@@ -123,7 +123,7 @@ async function completeBounty(req, res) {
     }
     
     // Release funds from escrow to the developer
-    const releaseResult = await radius.releaseEscrow(bounty.escrowId, bounty.claimedBy);
+    const releaseResult = await radius.releaseEscrow(bounty.escrowId, bounty.claimedBy, bounty.amount);
     console.log('Escrow released:', releaseResult);
     
     // Mark as completed in the database
@@ -162,7 +162,7 @@ async function cancelBounty(req, res) {
     }
     
     // Refund from escrow to the owner
-    const refundResult = await radius.refundEscrow(bounty.escrowId, userId);
+    const refundResult = await radius.refundEscrow(bounty.escrowId, userId, bounty.amount);
     console.log('Escrow refunded:', refundResult);
     
     // Mark as cancelled in the database

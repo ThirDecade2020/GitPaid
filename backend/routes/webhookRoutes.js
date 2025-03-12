@@ -150,7 +150,7 @@ router.post('/github', verifyGitHubWebhook, async (req, res) => {
     
     // Release the funds to the claimer
     try {
-      const releaseResult = await releaseEscrow(bounty.escrowId, claimerId);
+      const releaseResult = await releaseEscrow(bounty.escrowId, claimerId, bounty.amount);
       console.log('Escrow release result:', JSON.stringify(releaseResult, null, 2));
       
       // Mark the bounty as completed
@@ -241,7 +241,7 @@ router.post('/github/:owner/:repo', verifyGitHubWebhook, async (req, res) => {
     
     // Release the funds to the claimer
     try {
-      const releaseResult = await releaseEscrow(bounty.escrowId, claimerId);
+      const releaseResult = await releaseEscrow(bounty.escrowId, claimerId, bounty.amount);
       console.log('Escrow release result:', JSON.stringify(releaseResult, null, 2));
       
       // Mark the bounty as completed

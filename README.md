@@ -54,13 +54,13 @@ This full-stack web application allows GitHub repository owners to create bounti
 
    # Radius Blockchain Configuration
    RADIUS_API_URL="https://rpc.testnet.tryradi.us/your-api-key"
-   RADIUS_API_KEY="your-ethereum-private-key-without-0x-prefix"
+   # Separate API keys for different roles
+   RADIUS_BOUNTYLISTER_API_KEY="your-bountylister-private-key-without-0x-prefix"
+   RADIUS_ESCROW_API_KEY="your-escrow-private-key-without-0x-prefix"
+   # Addresses for the different roles
    RADIUS_ESCROW_ADDRESS="0x1234567890123456789012345678901234567890"
    RADIUS_BOUNTYLISTER_ADDRESS="0xE0726d13357eec32a04377BA301847D632D24646"
-   RADIUS_BOUNTYLISTER_API_KEY="your-bountylister-api-key"
-   RADIUS_ESCROW_API_KEY="your-escrow-api-key"
    RADIUS_BOUNTYHUNTER_ADDRESS="0x85EB3D12AfBFfA2Bf42EB0f070Df4AA60eF560Bc"
-   RADIUS_BOUNTYHUNTER_API_KEY="your-bountyhunter-api-key"
    ```
    
    **Frontend**: Create a `.env` file in the frontend directory with:
@@ -165,22 +165,33 @@ Key frontend files:
 
 ### Radius SDK Integration
 
-The application uses the Radius SDK for blockchain-based escrow functionality. The integration works as follows:
+The application uses the Radius SDK for blockchain-based escrow functionality with separate API keys for different roles in the bounty process. The integration works as follows:
 
 ### Escrow Creation (On Bounty Creation)
 When a repository owner creates a bounty, the funds are immediately transferred to an escrow account. This ensures that the funds are locked and available for the bounty winner.
 
 1. The bounty creator submits the bounty details including the amount.
 2. The application verifies the GitHub issue exists and is open.
-3. The application creates an escrow transaction using the Radius SDK.
-4. The funds are transferred from the owner's account to the escrow account.
+3. The application creates an escrow transaction using the Radius SDK with the bounty lister's API key.
+4. The funds are transferred from the bounty lister's account to the escrow account.
 5. The bounty is created in the database with the escrow transaction ID.
 
 ### Escrow Release (On Bounty Completion)
-When a GitHub issue associated with a bounty is closed, the funds are automatically released to the bounty claimer.
+When a GitHub issue associated with a bounty is closed, the funds are automatically released to the bounty hunter.
 
 1. GitHub sends a webhook notification to the application when an issue is closed.
-2. The application verifies the webhook signature using the webhook secret.
+2. The application verifies the issue is closed and the bounty is claimed.
+3. The application releases the funds from the escrow account (using the escrow API key) to the bounty hunter's address.
+4. The bounty status is updated to COMPLETED in the database.
+
+### Wallet Management Flow
+The system uses three distinct wallets with separate API keys for enhanced security and role separation:
+
+1. **Bounty Lister Wallet**: Used by repository owners to fund bounties. When creating a bounty, funds move from this wallet to the escrow wallet.
+2. **Escrow Wallet**: Holds funds securely until a bounty is completed or cancelled. This wallet is controlled by the platform.
+3. **Bounty Hunter Wallet**: Receives funds when a bounty is successfully completed.
+
+This separation of concerns ensures proper fund management and security throughout the bounty lifecycle.cation verifies the webhook signature using the webhook secret.
 3. The application checks if there's a bounty associated with the closed issue.
 4. If the bounty is claimed, the application releases the funds from escrow to the claimer.
 5. The bounty status is updated to "COMPLETED" in the database.

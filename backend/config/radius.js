@@ -1,32 +1,52 @@
 const { Account, Client, NewClient, NewAccount, withPrivateKey, 
   Address, AddressFromHex, Receipt, ABI, ABIFromJSON, Contract, NewContract, BytecodeFromHex } = require('@radiustechsystems/sdk');
 
-// Initialize Radius client and account
-let client;
-let account;
+// Initialize Radius clients and accounts
+let bountyListerClient;
+let bountyListerAccount;
+let escrowClient;
+let escrowAccount;
 
-// Initialize the Radius client and account
-async function initializeRadius() {
-  if (!client) {
+// Initialize the Radius client and account for bounty lister
+async function initializeBountyListerRadius() {
+  if (!bountyListerClient) {
     const RADIUS_ENDPOINT = process.env.RADIUS_API_URL;
-    const PRIVATE_KEY = process.env.RADIUS_API_KEY;
+    const PRIVATE_KEY = process.env.RADIUS_BOUNTYLISTER_API_KEY;
     
     if (!RADIUS_ENDPOINT || !PRIVATE_KEY) {
-      throw new Error('Radius API URL or API Key is missing. Please check environment variables.');
+      throw new Error('Radius API URL or Bounty Lister API Key is missing. Please check environment variables.');
     }
     
-    console.log('Initializing Radius client with endpoint:', RADIUS_ENDPOINT);
-    client = await NewClient(RADIUS_ENDPOINT);
-    account = await NewAccount(withPrivateKey(PRIVATE_KEY, client));
-    console.log('Radius client initialized successfully');
+    console.log('Initializing Bounty Lister Radius client with endpoint:', RADIUS_ENDPOINT);
+    bountyListerClient = await NewClient(RADIUS_ENDPOINT);
+    bountyListerAccount = await NewAccount(withPrivateKey(PRIVATE_KEY, bountyListerClient));
+    console.log('Bounty Lister Radius client initialized successfully');
   }
-  return { client, account };
+  return { client: bountyListerClient, account: bountyListerAccount };
+}
+
+// Initialize the Radius client and account for escrow
+async function initializeEscrowRadius() {
+  if (!escrowClient) {
+    const RADIUS_ENDPOINT = process.env.RADIUS_API_URL;
+    const PRIVATE_KEY = process.env.RADIUS_ESCROW_API_KEY;
+    
+    if (!RADIUS_ENDPOINT || !PRIVATE_KEY) {
+      throw new Error('Radius API URL or Escrow API Key is missing. Please check environment variables.');
+    }
+    
+    console.log('Initializing Escrow Radius client with endpoint:', RADIUS_ENDPOINT);
+    escrowClient = await NewClient(RADIUS_ENDPOINT);
+    escrowAccount = await NewAccount(withPrivateKey(PRIVATE_KEY, escrowClient));
+    console.log('Escrow Radius client initialized successfully');
+  }
+  return { client: escrowClient, account: escrowAccount };
 }
 
 // Deploy a simple escrow contract
 async function deployEscrowContract() {
   try {
-    const { client, account } = await initializeRadius();
+    const { client, account } = await initializeBountyListerRadius();
     
     // Simple escrow contract ABI and bytecode
     // This is a very basic escrow contract that allows the owner to release funds to a beneficiary
@@ -55,22 +75,21 @@ async function deployEscrowContract() {
 // Lock funds in escrow by transferring to the escrow contract
 async function createEscrow(userId, amount) {
   try {
-    const { client, account } = await initializeRadius();
+    // Use the bounty lister's account to send funds to escrow
+    const { client, account } = await initializeBountyListerRadius();
     console.log('Creating escrow for user:', userId, 'amount:', amount);
     
     // For production, we'll use the actual Radius integration
     // Convert amount to the smallest unit (wei equivalent)
     const amountInWei = BigInt(Math.floor(parseFloat(amount) * 10**18));
     
-    // Get the user's address from our database or create a new address for the user
-    // This is a placeholder - in a real implementation, you would have a way to map
-    // user IDs to blockchain addresses
-    const userAddressHex = process.env.RADIUS_ESCROW_ADDRESS || '0x1234567890123456789012345678901234567890';
-    const escrowAddress = AddressFromHex(userAddressHex);
+    // Get the escrow address from environment variables
+    const escrowAddressHex = process.env.RADIUS_ESCROW_ADDRESS || '0x1234567890123456789012345678901234567890';
+    const escrowAddress = AddressFromHex(escrowAddressHex);
     
-    console.log(`Transferring ${amount} tokens to escrow address ${userAddressHex}`);
+    console.log(`Transferring ${amount} tokens from bounty lister to escrow address ${escrowAddressHex}`);
     
-    // Send funds to the escrow address
+    // Send funds from bounty lister to the escrow address
     const receipt = await account.send(client, escrowAddress, amountInWei);
     const txHash = receipt.txHash.hex();
     
@@ -84,33 +103,31 @@ async function createEscrow(userId, amount) {
 }
 
 // Release funds from escrow to the developer
-async function releaseEscrow(escrowId, toId) {
+async function releaseEscrow(escrowId, toId, amount) {
   try {
-    const { client, account } = await initializeRadius();
-    console.log('Releasing escrow:', escrowId, 'to recipient:', toId);
+    // Use the escrow account to send funds to the bounty hunter
+    const { client, account } = await initializeEscrowRadius();
+    console.log('Releasing escrow:', escrowId, 'to bounty hunter');
     
     // In development mode with testnet, we'll log additional information
     if (process.env.NODE_ENV === 'development') {
       console.log('Running in development mode with testnet');
     }
     
-    // For production, we'll use the actual Radius integration
-    // Get the recipient's address
-    // This is a placeholder - in a real implementation, you would have a way to map
-    // user IDs to blockchain addresses
-    const recipientAddressHex = `0x${toId.padStart(40, '0')}`; // Simple conversion for demo
-    const recipientAddress = AddressFromHex(recipientAddressHex);
+    // Get the bounty hunter's address from environment variables
+    const hunterAddressHex = process.env.RADIUS_BOUNTYHUNTER_ADDRESS || '0x85EB3D12AfBFfA2Bf42EB0f070Df4AA60eF560Bc';
+    const hunterAddress = AddressFromHex(hunterAddressHex);
     
-    // Amount to release - in a real implementation, this would be stored with the escrow
-    const amountToRelease = BigInt(1 * 10**18); // 1 token for demo
+    // Convert the amount to the appropriate token format (assuming 18 decimals)
+    const amountToRelease = BigInt(amount * 10**18);
     
-    console.log(`Transferring ${amountToRelease} tokens to recipient ${recipientAddressHex}`);
+    console.log(`Transferring ${amountToRelease} tokens from escrow to bounty hunter ${hunterAddressHex}`);
     
-    // Send funds from the main account to the recipient
-    const receipt = await account.send(client, recipientAddress, amountToRelease);
+    // Send funds from the escrow account to the bounty hunter
+    const receipt = await account.send(client, hunterAddress, amountToRelease);
     const txHash = receipt.txHash.hex();
     
-    console.log('Funds released to recipient. Transaction hash:', txHash);
+    console.log('Funds released to bounty hunter. Transaction hash:', txHash);
     
     return {
       success: true,
@@ -123,33 +140,31 @@ async function releaseEscrow(escrowId, toId) {
 }
 
 // Refund funds from escrow back to the owner
-async function refundEscrow(escrowId, toId) {
+async function refundEscrow(escrowId, toId, amount) {
   try {
-    const { client, account } = await initializeRadius();
-    console.log('Refunding escrow:', escrowId, 'to owner:', toId);
+    // Use the escrow account to refund to the bounty lister
+    const { client, account } = await initializeEscrowRadius();
+    console.log('Refunding escrow:', escrowId, 'to bounty lister');
     
     // In development mode with testnet, we'll log additional information
     if (process.env.NODE_ENV === 'development') {
       console.log('Running in development mode with testnet');
     }
     
-    // For production, we'll use the actual Radius integration
-    // Get the owner's address
-    // This is a placeholder - in a real implementation, you would have a way to map
-    // user IDs to blockchain addresses
-    const ownerAddressHex = `0x${toId.padStart(40, '0')}`; // Simple conversion for demo
-    const ownerAddress = AddressFromHex(ownerAddressHex);
+    // Get the bounty lister's address - in a real implementation, this would be stored with the bounty
+    const listerAddressHex = process.env.RADIUS_BOUNTYLISTER_ADDRESS || '0xE0726d13357eec32a04377BA301847D632D24646';
+    const listerAddress = AddressFromHex(listerAddressHex);
     
-    // Amount to refund - in a real implementation, this would be stored with the escrow
-    const amountToRefund = BigInt(1 * 10**18); // 1 token for demo
+    // Convert the amount to the appropriate token format (assuming 18 decimals)
+    const amountToRefund = BigInt(amount * 10**18);
     
-    console.log(`Transferring ${amountToRefund} tokens to owner ${ownerAddressHex}`);
+    console.log(`Transferring ${amountToRefund} tokens from escrow to bounty lister ${listerAddressHex}`);
     
-    // Send funds from the main account to the owner
-    const receipt = await account.send(client, ownerAddress, amountToRefund);
+    // Send funds from the escrow account back to the bounty lister
+    const receipt = await account.send(client, listerAddress, amountToRefund);
     const txHash = receipt.txHash.hex();
     
-    console.log('Funds refunded to owner. Transaction hash:', txHash);
+    console.log('Funds refunded to bounty lister. Transaction hash:', txHash);
     
     return {
       success: true,
@@ -161,4 +176,4 @@ async function refundEscrow(escrowId, toId) {
   }
 }
 
-module.exports = { createEscrow, releaseEscrow, refundEscrow, deployEscrowContract };
+module.exports = { createEscrow, releaseEscrow, refundEscrow, deployEscrowContract, initializeBountyListerRadius, initializeEscrowRadius };

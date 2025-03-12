@@ -51,12 +51,12 @@ export async function createBounty(data) {
 
 // Claim a bounty by ID
 export async function claimBounty(bountyId) {
-  return API.post('/api/bounty/claim', { bounty_id: bountyId });
+  return API.post(`/api/bounty/${bountyId}/claim`);
 }
 
 // Complete a bounty by ID (approve and release payment)
 export async function completeBounty(bountyId) {
-  return API.post('/api/bounty/complete', { bounty_id: bountyId });
+  return API.post(`/api/bounty/${bountyId}/complete`);
 }
 
 // Fetch user's repositories from GitHub
