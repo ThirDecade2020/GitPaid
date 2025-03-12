@@ -1,11 +1,17 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/router';
 import Link from 'next/link';
 
 const Layout = ({ children }) => {
   const router = useRouter();
-  const isLoggedIn = typeof window !== 'undefined' && localStorage.getItem('token');
-  const username = typeof window !== 'undefined' && localStorage.getItem('username');
+  const [isLoggedIn, setIsLoggedIn] = useState(false);
+  const [username, setUsername] = useState('');
+  
+  // Use useEffect to safely access localStorage after component mounts
+  useEffect(() => {
+    setIsLoggedIn(!!localStorage.getItem('token'));
+    setUsername(localStorage.getItem('username') || '');
+  }, []);
   
   const handleLogout = () => {
     localStorage.clear();
@@ -99,7 +105,7 @@ const Layout = ({ children }) => {
       <footer className="bg-[#1e293b] border-t border-[#334155] py-6">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="text-center text-sm text-gray-400">
-            <p>© {new Date().getFullYear()} GitPaid. All rights reserved.</p>
+            <p>© <span suppressHydrationWarning>{new Date().getFullYear()}</span> GitPaid. All rights reserved.</p>
           </div>
         </div>
       </footer>
