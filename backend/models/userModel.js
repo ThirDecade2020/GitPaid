@@ -1,4 +1,5 @@
 const prisma = require('../config/database');
+const axios = require('axios');
 
 // Find or create a user using GitHub OAuth profile data
 async function findOrCreateUser(profile, token) {
@@ -34,4 +35,35 @@ async function getUserById(id) {
   return prisma.user.findUnique({ where: { id: id } });
 }
 
-module.exports = { findOrCreateUser, getUserById };
+/**
+ * Fetch repositories for a user using their GitHub token
+ * @param {string} userId User ID
+ * @returns {Promise<Array>} List of repositories
+ */
+async function getUserRepositories(userId) {
+  try {
+    const user = await getUserById(userId);
+    if (!user || !user.token) {
+      throw new Error('User not found or token not available');
+    }
+    
+    const response = await axios.get('https://api.github.com/user/repos', {
+      headers: {
+        Authorization: `token ${user.token}`,
+        Accept: 'application/vnd.github.v3+json'
+      },
+      params: {
+        per_page: 100,
+        sort: 'updated',
+        affiliation: 'owner,collaborator'
+      }
+    });
+    
+    return response.data;
+  } catch (error) {
+    console.error('Error fetching user repositories:', error.message);
+    return [];
+  }
+}
+
+module.exports = { findOrCreateUser, getUserById, getUserRepositories };

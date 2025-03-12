@@ -61,22 +61,42 @@ async function getAllBounties() {
 
 // Get bounties associated with a user (posted and claimed by the user)
 async function getUserBounties(userId) {
-  // Bounties posted by the user (open or claimed, exclude completed/cancelled)
+  console.log(`Getting bounties for user ID: ${userId}`);
+  
+  // Get ALL bounties posted by the user (including completed/cancelled for history)
   const posted = await prisma.bounty.findMany({
     where: {
-      createdBy: userId,
-      NOT: { status: { in: ['COMPLETED', 'CANCELLED'] } }
+      createdBy: userId
     },
-    include: { claimer: { select: { githubUsername: true } } }
+    include: { 
+      claimer: { select: { githubUsername: true, name: true } }
+    },
+    orderBy: { createdAt: 'desc' }
   });
+  
+  console.log(`Found ${posted.length} bounties posted by user ${userId}`);
+  if (posted.length > 0) {
+    console.log('Sample posted bounty:', {
+      id: posted[0].id,
+      repo: `${posted[0].repoOwner}/${posted[0].repoName}`,
+      status: posted[0].status
+    });
+  }
+  
   // Bounties claimed by the user (still active)
   const claimed = await prisma.bounty.findMany({
     where: {
       claimedBy: userId,
       NOT: { status: { in: ['COMPLETED', 'CANCELLED'] } }
     },
-    include: { owner: { select: { githubUsername: true } } }
+    include: { 
+      owner: { select: { githubUsername: true, name: true } }
+    },
+    orderBy: { updatedAt: 'desc' }
   });
+  
+  console.log(`Found ${claimed.length} bounties claimed by user ${userId}`);
+  
   return { posted, claimed };
 }
 

@@ -1,12 +1,13 @@
 const express = require('express');
 const router = express.Router();
 const crypto = require('crypto');
+const prisma = require('../config/database');
 const { getBountyByIssue, markBountyCompleted } = require('../models/bountyModel');
 const { releaseEscrow } = require('../config/radius');
 const { getUserById } = require('../models/userModel');
 
 // GitHub webhook secret verification middleware
-function verifyGitHubWebhook(req, res, next) {
+async function verifyGitHubWebhook(req, res, next) {
   console.log('===== WEBHOOK REQUEST RECEIVED =====');
   console.log('Headers:', JSON.stringify(req.headers, null, 2));
   console.log('Body (sample):', JSON.stringify(req.body).substring(0, 500) + '...');
@@ -17,10 +18,36 @@ function verifyGitHubWebhook(req, res, next) {
     return res.status(401).json({ error: 'No signature found in request' });
   }
 
-  const webhookSecret = process.env.GITHUB_WEBHOOK_SECRET;
+  let webhookSecret;
+  
+  // Check if this is a repository-specific webhook
+  if (req.params.owner && req.params.repo) {
+    // Get webhook secret for this repository
+    try {
+      const webhookInfo = await prisma.repositoryWebhook.findUnique({
+        where: {
+          repoOwner_repoName: {
+            repoOwner: req.params.owner,
+            repoName: req.params.repo
+          }
+        }
+      });
+      
+      if (webhookInfo) {
+        webhookSecret = webhookInfo.webhookSecret;
+        console.log(`Found webhook config for ${req.params.owner}/${req.params.repo}`);
+        // Add webhook info to request for later use
+        req.webhookInfo = webhookInfo;
+      }
+    } catch (error) {
+      console.error('Error retrieving webhook info:', error);
+    }
+  }
+  
+  // Check if we found a repository-specific webhook secret
   if (!webhookSecret) {
-    console.error('ERROR: GITHUB_WEBHOOK_SECRET not configured');
-    return res.status(500).json({ error: 'Webhook secret not configured' });
+    console.error('ERROR: No webhook secret found for this repository');
+    return res.status(500).json({ error: 'Repository webhook not configured' });
   }
 
   console.log('Webhook secret found, verifying signature...');
@@ -50,7 +77,7 @@ function verifyGitHubWebhook(req, res, next) {
   next();
 }
 
-// GitHub webhook for issue events
+// GitHub webhook for issue events (legacy route for backward compatibility)
 router.post('/github', verifyGitHubWebhook, async (req, res) => {
   try {
     console.log('===== PROCESSING WEBHOOK =====');
@@ -119,6 +146,97 @@ router.post('/github', verifyGitHubWebhook, async (req, res) => {
     }
 
     console.log(`Claimer found: ${claimer.username}`);
+    console.log(`Releasing escrow ${bounty.escrowId} to user ${claimerId}`);
+    
+    // Release the funds to the claimer
+    try {
+      const releaseResult = await releaseEscrow(bounty.escrowId, claimerId);
+      console.log('Escrow release result:', JSON.stringify(releaseResult, null, 2));
+      
+      // Mark the bounty as completed
+      console.log(`Marking bounty ${bounty.id} as completed with transaction: ${releaseResult.transaction}`);
+      await markBountyCompleted(bounty.id, releaseResult.transaction);
+      console.log('Bounty successfully marked as completed');
+
+      return res.status(200).json({ 
+        message: 'Funds released successfully', 
+        bountyId: bounty.id,
+        transaction: releaseResult.transaction 
+      });
+    } catch (error) {
+      console.error('Error releasing escrow:', error);
+      return res.status(500).json({ error: 'Error releasing escrow: ' + error.message });
+    }
+  } catch (error) {
+    console.error('Error handling GitHub webhook:', error);
+    console.error(error.stack);
+    return res.status(500).json({ error: 'Error processing webhook: ' + error.message });
+  }
+});
+
+// Repository-specific webhook route
+router.post('/github/:owner/:repo', verifyGitHubWebhook, async (req, res) => {
+  try {
+    console.log(`===== PROCESSING REPOSITORY WEBHOOK FOR ${req.params.owner}/${req.params.repo} =====`);
+    // Check if this is an issue event
+    if (req.headers['x-github-event'] !== 'issues') {
+      console.log(`Ignoring non-issue event: ${req.headers['x-github-event']}`);
+      return res.status(200).json({ message: 'Not an issue event, ignoring' });
+    }
+
+    const { action, issue, repository } = req.body;
+    console.log(`Received GitHub webhook: ${action} issue #${issue.number} in ${repository.full_name}`);
+    console.log('Issue details:', JSON.stringify({
+      id: issue.id,
+      number: issue.number,
+      title: issue.title,
+      state: issue.state,
+      locked: issue.locked,
+      closed_at: issue.closed_at,
+      user: issue.user?.login
+    }, null, 2));
+
+    // We only care about issues being closed
+    if (action !== 'closed') {
+      console.log(`Ignoring '${action}' action`);
+      return res.status(200).json({ message: 'Not a closed issue event, ignoring' });
+    }
+
+    // Find if there's a bounty for this issue
+    const repoOwner = repository.owner.login;
+    const repoName = repository.name;
+    const issueNumber = issue.number;
+
+    console.log(`Looking for bounty for issue #${issueNumber} in ${repoOwner}/${repoName}`);
+    
+    const bounty = await getBountyByIssue(repoOwner, repoName, issueNumber);
+    if (!bounty) {
+      console.log('No bounty found for this issue');
+      return res.status(200).json({ message: 'No bounty found for this issue' });
+    }
+
+    console.log('Found bounty:', JSON.stringify(bounty, null, 2));
+
+    if (bounty.status !== 'CLAIMED') {
+      console.log(`Bounty is in ${bounty.status} state, not releasing funds`);
+      return res.status(200).json({ message: `Bounty is in ${bounty.status} state, not releasing funds` });
+    }
+
+    // Get the claimer's user ID
+    const claimerId = bounty.claimedBy;
+    if (!claimerId) {
+      console.log('Bounty has no claimer, cannot release funds');
+      return res.status(200).json({ message: 'Bounty has no claimer, cannot release funds' });
+    }
+
+    console.log(`Getting user details for claimer ID: ${claimerId}`);
+    const claimer = await getUserById(claimerId);
+    if (!claimer) {
+      console.log('Claimer not found, cannot release funds');
+      return res.status(200).json({ message: 'Claimer not found, cannot release funds' });
+    }
+
+    console.log(`Claimer found: ${claimer.githubUsername}`);
     console.log(`Releasing escrow ${bounty.escrowId} to user ${claimerId}`);
     
     // Release the funds to the claimer

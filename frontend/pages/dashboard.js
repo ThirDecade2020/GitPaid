@@ -28,10 +28,22 @@ const Dashboard = () => {
     const loadBounties = async () => {
       try {
         setLoading(true);
+        console.log('Dashboard: Fetching user bounties...');
         const data = await fetchUserBounties();
-        setUserBounties(data);
+        console.log('Dashboard: Received bounties data:', data);
+        
+        // Ensure we have the expected structure
+        const formattedData = {
+          posted: Array.isArray(data.posted) ? data.posted : [],
+          claimed: Array.isArray(data.claimed) ? data.claimed : []
+        };
+        
+        console.log('Dashboard: Formatted bounties data:', formattedData);
+        setUserBounties(formattedData);
       } catch (err) {
-        console.error('Failed to load user bounties');
+        console.error('Failed to load user bounties:', err);
+        // Set empty arrays as fallback
+        setUserBounties({ posted: [], claimed: [] });
       } finally {
         setLoading(false);
       }

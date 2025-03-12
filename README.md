@@ -1,22 +1,25 @@
-# GitHub Bounty Platform
+# Git Paid - GitHub Bounty Platform
 
 This full-stack web application allows GitHub repository owners to create bounties on issues and incentivize developers to contribute fixes. Bounties are held in escrow using the **Radius SDK** for secure payment release upon completion.
 
 ## Features
 
-- **GitHub OAuth Login**: Users authenticate via GitHub (OAuth) to use the platform.
+- **GitHub OAuth Login**: Users authenticate via GitHub (OAuth) to use the platform with proper scopes (admin:repo_hook, repo, user:email).
 - **Bounty Creation**: Repository owners can create a bounty for any open GitHub issue in their repos by funding an escrow.
 - **Bounty Listing**: Open bounties are publicly listed for developers to browse.
 - **Claiming Bounties**: Developers claim a bounty (locking it for others) and work on the issue.
 - **Approval & Payment**: Once a fix is merged (issue closed), the repo owner approves and the escrowed funds are released to the developer via Radius.
 - **Escrow Management**: Funds are held, released, or refunded using the Radius blockchain integration.
+- **Per-Repository Webhooks**: Secure webhook management with unique secrets per repository for enhanced security and user isolation.
+- **Automated Fund Release**: Webhooks trigger automatic fund release when issues are closed on GitHub.
 
 ## Tech Stack
 
 - **Backend**: Node.js + Express, Passport (GitHub OAuth), Prisma (PostgreSQL ORM), Axios (for GitHub API calls).
 - **Frontend**: Next.js (React) for server-side rendering, TailwindCSS for UI styling, Axios for API calls.
-- **Database**: PostgreSQL (via Prisma schema & client).
+- **Database**: PostgreSQL (via Prisma schema & client) with models for Users, Bounties, and RepositoryWebhooks.
 - **Blockchain Integration**: Radius SDK for blockchain-based escrow and payments using smart contracts.
+- **Security**: Per-repository webhook secrets stored in database for secure webhook verification.
 - **Deployment Targets**:
   - Frontend: Vercel (Next.js)
   - Backend: Railway or Render (Node.js service)
@@ -33,35 +36,36 @@ This full-stack web application allows GitHub repository owners to create bounti
 ### Installation
 1. **Clone the repository** and navigate to the project directory.
 
-2. **Configure environment variables**: Create a `.env` file in the backend directory with the required keys:
-   ```bash
-   # Database
-   DATABASE_URL="postgresql://username:password@localhost:5432/GitPaid?schema=public"
+2. **Configure environment variables**: The application requires separate environment files for the backend and frontend, each with different configurations.
 
-   # Auth
+   **Backend**: Create a `.env` file in the backend directory with:
+   ```bash
+   # Database Configuration
+   DATABASE_URL="postgresql://username:password@localhost:5432/gitpaid?schema=public"
+
+   # Authentication
    JWT_SECRET="your-jwt-secret"
    GITHUB_CLIENT_ID="your-github-oauth-app-client-id"
    GITHUB_CLIENT_SECRET="your-github-oauth-app-client-secret"
    GITHUB_CALLBACK_URL="http://localhost:5000/auth/github/callback"
 
-   # Frontend
+   # Frontend URL for redirects
    FRONTEND_URL="http://localhost:3000"
 
-   # Radius SDK Configuration
+   # Radius Blockchain Configuration
    RADIUS_API_URL="https://rpc.testnet.tryradi.us/your-api-key"
    RADIUS_API_KEY="your-ethereum-private-key-without-0x-prefix"
    RADIUS_ESCROW_ADDRESS="0x1234567890123456789012345678901234567890"
-   
-   # Development Mode - set to 'true' to use mock implementations
-   NODE_ENV="development"
-   USE_MOCK_RADIUS="true"
-   
-   # GitHub Webhook Secret
-   GITHUB_WEBHOOK_SECRET="your-github-webhook-secret"
+   RADIUS_BOUNTYLISTER_ADDRESS="0xE0726d13357eec32a04377BA301847D632D24646"
+   RADIUS_BOUNTYLISTER_API_KEY="your-bountylister-api-key"
+   RADIUS_ESCROW_API_KEY="your-escrow-api-key"
+   RADIUS_BOUNTYHUNTER_ADDRESS="0x85EB3D12AfBFfA2Bf42EB0f070Df4AA60eF560Bc"
+   RADIUS_BOUNTYHUNTER_API_KEY="your-bountyhunter-api-key"
    ```
    
-   Create a `.env.local` file in the frontend directory with:
+   **Frontend**: Create a `.env` file in the frontend directory with:
    ```bash
+   # API Configuration
    NEXT_PUBLIC_API_BASE="http://localhost:5000"
    ```
 
@@ -99,6 +103,16 @@ npm run dev    # Starts the Express server on port 5000 (with nodemon)
 cd frontend
 npm run dev    # Starts the Next.js dev server on port 3000
 ```
+
+### Database Schema
+
+The application uses Prisma with the following main models:
+
+- **User**: Stores GitHub user information and authentication tokens
+- **Bounty**: Tracks bounties, their status, and associated GitHub issues
+- **RepositoryWebhook**: Stores per-repository webhook configurations with unique secrets
+
+The RepositoryWebhook model is crucial for security and proper webhook management, allowing each repository to have its own webhook endpoint with a unique secret.
 
 Ensure the backend (http://localhost:5000) and frontend (http://localhost:3000) are running. The frontend is configured to call the backend API via `NEXT_PUBLIC_API_BASE`.
 
@@ -172,30 +186,29 @@ When a GitHub issue associated with a bounty is closed, the funds are automatica
 5. The bounty status is updated to "COMPLETED" in the database.
 
 ### Development Mode
-During development, you can use mock implementations of the Radius SDK functions by setting `USE_MOCK_RADIUS="true"` in your `.env` file. This allows you to test the application without connecting to the actual blockchain.
+During development, you can test the application with the Radius testnet to simulate blockchain interactions without using real funds.
 
 ### Production Setup
 For production, you need to set up the following:
 
 1. **Radius RPC Endpoint**: You can obtain a Radius testnet RPC endpoint from [Radius Testnet Access](https://docs.radiustech.xyz/radius-testnet-access).
 2. **Ethereum Private Key**: You need an Ethereum private key for transaction signing. See [Ethereum Account Creation](https://ethereum.org/en/developers/docs/accounts/).
-3. **Escrow Address**: This is the default address where funds will be held in escrow.
-
-Make sure to set `USE_MOCK_RADIUS="false"` in production to use the actual blockchain integration.
+3. **Escrow and Bounty Addresses**: Configure the appropriate addresses for escrow and bounty management in your production environment.
 
 ### GitHub Webhook Setup
 
-To enable automatic release of funds when issues are closed, you need to set up a GitHub webhook:
+The application uses per-repository webhooks for enhanced security and user isolation. To enable automatic release of funds when issues are closed:
 
 1. Go to your GitHub repository settings.
 2. Navigate to "Webhooks" and click "Add webhook".
-3. Set the Payload URL to `https://your-backend-url/webhooks/github`.
+3. Set the Payload URL to `https://your-backend-url/webhooks/github/{owner}/{repo}` where `{owner}` is the repository owner and `{repo}` is the repository name.
 4. Set the Content type to `application/json`.
-5. Generate a secure webhook secret and set it in both the GitHub webhook settings and your `.env` file as `GITHUB_WEBHOOK_SECRET`.
-6. Select "Let me select individual events" and choose only "Issues" events.
-7. Make sure the webhook is active and click "Add webhook".
+5. Generate a unique secure webhook secret for each repository.
+6. The application will store this secret in the database when you connect a repository through the UI.
+7. Select "Let me select individual events" and choose only "Issues" events.
+8. Make sure the webhook is active and click "Add webhook".
 
-The webhook will notify the application when issues are opened, closed, or modified. The application will only process "closed" events for issues that have associated bounties.
+The webhook will notify the application when issues are closed, and the application will automatically release funds for bounties associated with those issues. Each repository has its own webhook endpoint with a unique secret, ensuring proper security isolation between repositories.
 
 ### Deployment
 

@@ -6,6 +6,7 @@ const cors = require('cors');
 const authRoutes = require('./routes/authRoutes');
 const bountyRoutes = require('./routes/bountyRoutes');
 const webhookRoutes = require('./routes/webhookRoutes');
+const webhookManagementRoutes = require('./routes/webhookManagementRoutes');
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -30,6 +31,7 @@ app.use(passport.initialize());
 // Routes
 app.use('/auth', authRoutes);
 app.use('/api', bountyRoutes);
+app.use('/api', webhookManagementRoutes);
 app.use('/webhooks', webhookRoutes);
 
 // Health check (optional)

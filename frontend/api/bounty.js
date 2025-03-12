@@ -22,8 +22,17 @@ export async function fetchOpenBounties() {
 
 // Fetch bounties associated with logged-in user (requires auth)
 export async function fetchUserBounties() {
-  const res = await API.get('/api/bounties/user');
-  return res.data;
+  try {
+    console.log('Fetching user bounties...');
+    const res = await API.get('/api/bounties/user');
+    console.log('User bounties response:', res.data);
+    // Make sure we're returning the expected structure even if the API response format changes
+    return res.data.bounties || { posted: [], claimed: [] };
+  } catch (error) {
+    console.error('Error fetching user bounties:', error);
+    // Return empty arrays if the request fails
+    return { posted: [], claimed: [] };
+  }
 }
 
 // Create a new bounty

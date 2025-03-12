@@ -204,10 +204,19 @@ async function listAllBounties(req, res) {
 async function listUserBounties(req, res) {
   try {
     const userId = req.user.id;
+    console.log(`Fetching bounties for user ID: ${userId}`);
+    
     const bounties = await getUserBounties(userId);
+    console.log('User bounties retrieved:', {
+      postedCount: bounties.posted?.length || 0,
+      claimedCount: bounties.claimed?.length || 0,
+      postedSample: bounties.posted?.length > 0 ? bounties.posted[0].id : 'none'
+    });
+    
     return res.status(200).json({ bounties });
   } catch (error) {
     console.error('Error listing user bounties:', error);
+    console.error('Error details:', error.stack);
     return res.status(500).json({ error: 'Failed to list bounties', message: error.message });
   }
 }

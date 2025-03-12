@@ -58,13 +58,6 @@ async function createEscrow(userId, amount) {
     const { client, account } = await initializeRadius();
     console.log('Creating escrow for user:', userId, 'amount:', amount);
     
-    // In development mode, we'll use a mock implementation
-    // if (process.env.NODE_ENV === 'development' && process.env.USE_MOCK_RADIUS === 'true') {
-    //   const mockEscrowId = `escrow_${Date.now()}_${Math.floor(Math.random() * 1000)}`;
-    //   console.log('Created mock escrow with ID:', mockEscrowId);
-    //   return mockEscrowId;
-    // }
-    
     // For production, we'll use the actual Radius integration
     // Convert amount to the smallest unit (wei equivalent)
     const amountInWei = BigInt(Math.floor(parseFloat(amount) * 10**18));
@@ -96,14 +89,9 @@ async function releaseEscrow(escrowId, toId) {
     const { client, account } = await initializeRadius();
     console.log('Releasing escrow:', escrowId, 'to recipient:', toId);
     
-    // In development mode, we'll use a mock implementation
-    if (process.env.NODE_ENV === 'development' && process.env.USE_MOCK_RADIUS === 'true') {
-      const mockTransactionId = `release_tx_${Date.now()}_${Math.floor(Math.random() * 1000)}`;
-      console.log('Created mock release transaction:', mockTransactionId);
-      return {
-        success: true,
-        transaction: mockTransactionId
-      };
+    // In development mode with testnet, we'll log additional information
+    if (process.env.NODE_ENV === 'development') {
+      console.log('Running in development mode with testnet');
     }
     
     // For production, we'll use the actual Radius integration
@@ -140,14 +128,9 @@ async function refundEscrow(escrowId, toId) {
     const { client, account } = await initializeRadius();
     console.log('Refunding escrow:', escrowId, 'to owner:', toId);
     
-    // In development mode, we'll use a mock implementation
-    if (process.env.NODE_ENV === 'development' && process.env.USE_MOCK_RADIUS === 'true') {
-      const mockTransactionId = `refund_tx_${Date.now()}_${Math.floor(Math.random() * 1000)}`;
-      console.log('Created mock refund transaction:', mockTransactionId);
-      return {
-        success: true,
-        transaction: mockTransactionId
-      };
+    // In development mode with testnet, we'll log additional information
+    if (process.env.NODE_ENV === 'development') {
+      console.log('Running in development mode with testnet');
     }
     
     // For production, we'll use the actual Radius integration

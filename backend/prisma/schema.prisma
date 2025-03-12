@@ -15,6 +15,7 @@ model User {
   token           String?
   bountiesCreated Bounty[] @relation("OwnerBounties")
   bountiesClaimed Bounty[] @relation("DevBounties")
+  webhooks        RepositoryWebhook[]
 }
 
 model Bounty {
@@ -35,4 +36,18 @@ model Bounty {
 
   owner        User     @relation("OwnerBounties", fields: [createdBy], references: [id])
   claimer      User?    @relation("DevBounties", fields: [claimedBy], references: [id])
+}
+
+model RepositoryWebhook {
+  id            Int      @id @default(autoincrement())
+  userId        Int
+  repoOwner     String
+  repoName      String
+  webhookId     String
+  webhookSecret String
+  createdAt     DateTime @default(now())
+  
+  user          User     @relation(fields: [userId], references: [id])
+  
+  @@unique([repoOwner, repoName])
 }
