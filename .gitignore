@@ -44,3 +44,13 @@ next-env.d.ts
 
 # .next
 .next/
+
+# scripts
+scripts/
+backend/utils/
+
+# docs
+docs/
+
+# migrations
+migrations/

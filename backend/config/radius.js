@@ -1,5 +1,8 @@
 const { Account, Client, NewClient, NewAccount, withPrivateKey, 
   Address, AddressFromHex, Receipt, ABI, ABIFromJSON, Contract, NewContract, BytecodeFromHex } = require('@radiustechsystems/sdk');
+const { PrismaClient } = require('@prisma/client');
+const prisma = new PrismaClient();
+const walletController = require('../controllers/walletController');
 
 // Initialize Radius clients and accounts
 let bountyListerClient;
@@ -7,39 +10,90 @@ let bountyListerAccount;
 let escrowClient;
 let escrowAccount;
 
-// Initialize the Radius client and account for bounty lister
-async function initializeBountyListerRadius() {
-  if (!bountyListerClient) {
-    const RADIUS_ENDPOINT = process.env.RADIUS_API_URL;
-    const PRIVATE_KEY = process.env.RADIUS_BOUNTYLISTER_API_KEY;
+// Cache for wallet-specific clients and accounts
+const walletClients = new Map();
+const walletAccounts = new Map();
+
+// Initialize the Radius client and account for a specific wallet
+async function initializeWalletRadius(walletId, userId) {
+  // Check if we already have a client and account for this wallet
+  if (walletClients.has(walletId) && walletAccounts.has(walletId)) {
+    return { 
+      client: walletClients.get(walletId), 
+      account: walletAccounts.get(walletId) 
+    };
+  }
+
+  const RADIUS_ENDPOINT = process.env.RADIUS_API_URL;
+  if (!RADIUS_ENDPOINT) {
+    throw new Error('Radius API URL is missing. Please check environment variables.');
+  }
+
+  try {
+    // Get wallet with decrypted private key
+    const wallet = await walletController.getWalletWithPrivateKey(walletId, userId);
     
-    if (!RADIUS_ENDPOINT || !PRIVATE_KEY) {
-      throw new Error('Radius API URL or Bounty Lister API Key is missing. Please check environment variables.');
+    // Sanitize the private key - ensure it's a valid hex string
+    let privateKey = wallet.privateKey;
+    
+    // Check if the key starts with 0x, if not add it
+    if (!privateKey.startsWith('0x')) {
+      privateKey = '0x' + privateKey;
     }
     
-    console.log('Initializing Bounty Lister Radius client with endpoint:', RADIUS_ENDPOINT);
-    bountyListerClient = await NewClient(RADIUS_ENDPOINT);
-    bountyListerAccount = await NewAccount(withPrivateKey(PRIVATE_KEY, bountyListerClient));
-    console.log('Bounty Lister Radius client initialized successfully');
+    // Remove any non-hex characters that might have been introduced during encryption/decryption
+    privateKey = privateKey.replace(/[^0-9a-fA-Fx]/g, '');
+    
+    // Ensure the key is the correct length (32 bytes = 64 hex chars + '0x' prefix)
+    if (privateKey.length > 66) {
+      privateKey = privateKey.substring(0, 66);
+    } else if (privateKey.length < 66 && privateKey.length > 2) {
+      // Pad with zeros if too short
+      privateKey = '0x' + privateKey.substring(2).padStart(64, '0');
+    }
+    
+    console.log(`Initializing Radius client for wallet ${wallet.walletName} with endpoint: ${RADIUS_ENDPOINT}`);
+    const client = await NewClient(RADIUS_ENDPOINT);
+    const account = await NewAccount(withPrivateKey(privateKey, client));
+    
+    // Cache the client and account
+    walletClients.set(walletId, client);
+    walletAccounts.set(walletId, account);
+    
+    console.log(`Radius client for wallet ${wallet.walletName} initialized successfully`);
+    return { client, account };
+  } catch (error) {
+    console.error('Error initializing wallet Radius client:', error);
+    throw new Error(`Failed to initialize wallet Radius client: ${error.message}`);
   }
-  return { client: bountyListerClient, account: bountyListerAccount };
 }
 
 // Initialize the Radius client and account for escrow
 async function initializeEscrowRadius() {
-  if (!escrowClient) {
-    const RADIUS_ENDPOINT = process.env.RADIUS_API_URL;
-    const PRIVATE_KEY = process.env.RADIUS_ESCROW_API_KEY;
-    
-    if (!RADIUS_ENDPOINT || !PRIVATE_KEY) {
-      throw new Error('Radius API URL or Escrow API Key is missing. Please check environment variables.');
-    }
-    
-    console.log('Initializing Escrow Radius client with endpoint:', RADIUS_ENDPOINT);
-    escrowClient = await NewClient(RADIUS_ENDPOINT);
-    escrowAccount = await NewAccount(withPrivateKey(PRIVATE_KEY, escrowClient));
-    console.log('Escrow Radius client initialized successfully');
+  // Always reinitialize to pick up any environment variable changes
+  const RADIUS_ENDPOINT = process.env.RADIUS_API_URL;
+  const PRIVATE_KEY = process.env.RADIUS_ESCROW_API_KEY;
+  
+  if (!RADIUS_ENDPOINT || !PRIVATE_KEY) {
+    throw new Error('Radius API URL or Escrow API Key is missing. Please check environment variables.');
   }
+  
+  console.log('Initializing Escrow Radius client with endpoint:', RADIUS_ENDPOINT);
+  console.log('Using Escrow API Key:', PRIVATE_KEY.substring(0, 6) + '...' + PRIVATE_KEY.substring(PRIVATE_KEY.length - 4));
+  
+  escrowClient = await NewClient(RADIUS_ENDPOINT);
+  escrowAccount = await NewAccount(withPrivateKey(PRIVATE_KEY, escrowClient));
+  
+  // Log the escrow account address for verification
+  const escrowAddress = escrowAccount.address.toString();
+  console.log('Escrow account address:', escrowAddress);
+  console.log('Expected escrow address from env:', process.env.RADIUS_ESCROW_ADDRESS);
+  
+  if (escrowAddress.toLowerCase() !== process.env.RADIUS_ESCROW_ADDRESS.toLowerCase()) {
+    console.warn('Warning: Escrow account address does not match RADIUS_ESCROW_ADDRESS in environment variables');
+  }
+  
+  console.log('Escrow Radius client initialized successfully');
   return { client: escrowClient, account: escrowAccount };
 }
 
@@ -63,7 +117,7 @@ async function deployEscrowContract() {
     
     console.log('Deploying escrow contract...');
     const deployedContract = await client.deployContract(account.signer, escrowBytecode, escrowAbi);
-    console.log('Escrow contract deployed at:', deployedContract.address.hex());
+    console.log('Escrow contract deployed at:', deployedContract.address.toString());
     
     return deployedContract;
   } catch (error) {
@@ -73,59 +127,105 @@ async function deployEscrowContract() {
 }
 
 // Lock funds in escrow by transferring to the escrow contract
-async function createEscrow(userId, amount) {
+async function createEscrow(userId, amount, walletId) {
   try {
-    // Use the bounty lister's account to send funds to escrow
-    const { client, account } = await initializeBountyListerRadius();
-    console.log('Creating escrow for user:', userId, 'amount:', amount);
+    // Use the specified wallet to send funds to escrow
+    const { client, account } = await initializeWalletRadius(walletId, userId);
+    console.log('Creating escrow for user:', userId, 'amount:', amount, 'using wallet:', walletId);
     
-    // For production, we'll use the actual Radius integration
+    // Ensure amount is a valid number
+    const numericAmount = parseFloat(amount);
+    if (isNaN(numericAmount)) {
+      throw new Error(`Invalid amount: ${amount}. Must be a valid number.`);
+    }
+    
     // Convert amount to the smallest unit (wei equivalent)
-    const amountInWei = BigInt(Math.floor(parseFloat(amount) * 10**18));
+    const amountInWei = BigInt(Math.floor(numericAmount * 10**18));
     
     // Get the escrow address from environment variables
-    const escrowAddressHex = process.env.RADIUS_ESCROW_ADDRESS || '0x1234567890123456789012345678901234567890';
+    const escrowAddressHex = process.env.RADIUS_ESCROW_ADDRESS;
+    if (!escrowAddressHex) {
+      throw new Error('RADIUS_ESCROW_ADDRESS is missing from environment variables');
+    }
+    
+    console.log('Using escrow address from environment variables:', escrowAddressHex);
     const escrowAddress = AddressFromHex(escrowAddressHex);
     
-    console.log(`Transferring ${amount} tokens from bounty lister to escrow address ${escrowAddressHex}`);
+    // Log wallet balance for debugging
+    try {
+      // The correct way to get balance is using the account object
+      const walletBalance = await account.getBalance(client);
+      console.log(`Wallet ${walletId} balance:`, walletBalance.toString());
+    } catch (balanceError) {
+      console.warn(`Could not fetch balance for wallet ${walletId}:`, balanceError.message);
+      // Continue with the transaction even if we can't get the balance
+    }
     
-    // Send funds from bounty lister to the escrow address
+    console.log(`Transferring ${numericAmount} tokens (${amountInWei} wei) from wallet ${walletId} to escrow address ${escrowAddressHex}`);
+    
+    // Send funds from the wallet to the escrow address
     const receipt = await account.send(client, escrowAddress, amountInWei);
-    const txHash = receipt.txHash.hex();
+    const txHash = receipt.txHash.toString();
     
     console.log('Funds transferred to escrow. Transaction hash:', txHash);
     
     return txHash; // Return the transaction hash as the escrow ID
   } catch (error) {
     console.error("Error creating escrow:", error);
+    console.error("Error stack:", error.stack);
     throw new Error("Failed to create escrow: " + error.message);
   }
 }
 
 // Release funds from escrow to the developer
-async function releaseEscrow(escrowId, toId, amount) {
+async function releaseEscrow(escrowId, toId, amount, hunterWalletId) {
   try {
     // Use the escrow account to send funds to the bounty hunter
     const { client, account } = await initializeEscrowRadius();
-    console.log('Releasing escrow:', escrowId, 'to bounty hunter');
+    console.log('Releasing escrow:', escrowId, 'to bounty hunter wallet:', hunterWalletId);
+    console.log('Amount to release:', amount);
     
     // In development mode with testnet, we'll log additional information
     if (process.env.NODE_ENV === 'development') {
       console.log('Running in development mode with testnet');
+      console.log('Escrow account address:', account.address.toString());
+      try {
+        const escrowBalance = await account.getBalance(client);
+        console.log('Escrow account balance:', escrowBalance.toString());
+      } catch (balanceError) {
+        console.warn('Could not fetch escrow account balance:', balanceError.message);
+      }
     }
     
-    // Get the bounty hunter's address from environment variables
-    const hunterAddressHex = process.env.RADIUS_BOUNTYHUNTER_ADDRESS || '0x85EB3D12AfBFfA2Bf42EB0f070Df4AA60eF560Bc';
+    // Get the bounty hunter's wallet from the database
+    const hunterWallet = await prisma.wallet.findUnique({
+      where: { id: hunterWalletId }
+    });
+    
+    if (!hunterWallet) {
+      throw new Error(`Hunter wallet with ID ${hunterWalletId} not found`);
+    }
+    
+    
+    const hunterAddressHex = hunterWallet.publicKey;
+    console.log('Hunter wallet public key:', hunterAddressHex);
     const hunterAddress = AddressFromHex(hunterAddressHex);
     
     // Convert the amount to the appropriate token format (assuming 18 decimals)
-    const amountToRelease = BigInt(amount * 10**18);
+    // Ensure amount is treated as a number before multiplication
+    const numericAmount = parseFloat(amount);
+    if (isNaN(numericAmount)) {
+      throw new Error(`Invalid amount: ${amount}. Must be a valid number.`);
+    }
     
-    console.log(`Transferring ${amountToRelease} tokens from escrow to bounty hunter ${hunterAddressHex}`);
+    // Use BigInt for precise calculations with large numbers
+    const amountInWei = BigInt(Math.floor(numericAmount * 10**18));
+    
+    console.log(`Transferring ${numericAmount} tokens (${amountInWei} wei) from escrow to bounty hunter wallet ${hunterAddressHex}`);
     
     // Send funds from the escrow account to the bounty hunter
-    const receipt = await account.send(client, hunterAddress, amountToRelease);
-    const txHash = receipt.txHash.hex();
+    const receipt = await account.send(client, hunterAddress, amountInWei);
+    const txHash = receipt.txHash.toString();
     
     console.log('Funds released to bounty hunter. Transaction hash:', txHash);
     
@@ -135,34 +235,43 @@ async function releaseEscrow(escrowId, toId, amount) {
     };
   } catch (error) {
     console.error("Error releasing escrow:", error);
+    console.error("Error stack:", error.stack);
     throw new Error("Failed to release escrow: " + error.message);
   }
 }
 
 // Refund funds from escrow back to the owner
-async function refundEscrow(escrowId, toId, amount) {
+async function refundEscrow(escrowId, toId, amount, ownerWalletId) {
   try {
     // Use the escrow account to refund to the bounty lister
     const { client, account } = await initializeEscrowRadius();
-    console.log('Refunding escrow:', escrowId, 'to bounty lister');
+    console.log('Refunding escrow:', escrowId, 'to bounty lister wallet:', ownerWalletId);
     
     // In development mode with testnet, we'll log additional information
     if (process.env.NODE_ENV === 'development') {
       console.log('Running in development mode with testnet');
     }
     
-    // Get the bounty lister's address - in a real implementation, this would be stored with the bounty
-    const listerAddressHex = process.env.RADIUS_BOUNTYLISTER_ADDRESS || '0xE0726d13357eec32a04377BA301847D632D24646';
+    // Get the bounty lister's wallet from the database
+    const ownerWallet = await prisma.wallet.findUnique({
+      where: { id: ownerWalletId }
+    });
+    
+    if (!ownerWallet) {
+      throw new Error(`Owner wallet with ID ${ownerWalletId} not found`);
+    }
+    
+    const listerAddressHex = ownerWallet.publicKey;
     const listerAddress = AddressFromHex(listerAddressHex);
     
     // Convert the amount to the appropriate token format (assuming 18 decimals)
     const amountToRefund = BigInt(amount * 10**18);
     
-    console.log(`Transferring ${amountToRefund} tokens from escrow to bounty lister ${listerAddressHex}`);
+    console.log(`Transferring ${amountToRefund} tokens from escrow to bounty lister wallet ${listerAddressHex}`);
     
     // Send funds from the escrow account back to the bounty lister
     const receipt = await account.send(client, listerAddress, amountToRefund);
-    const txHash = receipt.txHash.hex();
+    const txHash = receipt.txHash.toString();
     
     console.log('Funds refunded to bounty lister. Transaction hash:', txHash);
     
@@ -176,4 +285,4 @@ async function refundEscrow(escrowId, toId, amount) {
   }
 }
 
-module.exports = { createEscrow, releaseEscrow, refundEscrow, deployEscrowContract, initializeBountyListerRadius, initializeEscrowRadius };
+module.exports = { createEscrow, releaseEscrow, refundEscrow, deployEscrowContract, initializeWalletRadius, initializeEscrowRadius };

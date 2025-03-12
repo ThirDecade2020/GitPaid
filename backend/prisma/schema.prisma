@@ -1,10 +1,10 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
 datasource db {
   provider = "postgresql"
   url      = env("DATABASE_URL")
-}
-
-generator client {
-  provider = "prisma-client-js"
 }
 
 model User {
@@ -13,41 +13,43 @@ model User {
   githubUsername  String
   name            String?
   token           String?
-  bountiesCreated Bounty[] @relation("OwnerBounties")
   bountiesClaimed Bounty[] @relation("DevBounties")
-  webhooks        RepositoryWebhook[]
+  bountiesCreated Bounty[] @relation("OwnerBounties")
+  Wallet          Wallet[]
 }
 
 model Bounty {
-  id           Int      @id @default(autoincrement())
-  repoOwner    String
-  repoName     String
-  issueNumber  Int
-  amount       Float
-  currency     String   @default("USD")
-  status       String
-  escrowId     String
-  transactionId String?
-  createdBy    Int
-  claimedBy    Int?
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
-  completedAt  DateTime?
-
-  owner        User     @relation("OwnerBounties", fields: [createdBy], references: [id])
-  claimer      User?    @relation("DevBounties", fields: [claimedBy], references: [id])
+  id                                   Int      @id @default(autoincrement())
+  repoOwner                            String
+  repoName                             String
+  issueNumber                          Int
+  amount                               Float
+  currency                             String   @default("USD")
+  status                               String
+  escrowId                             String
+  createdBy                            Int
+  claimedBy                            Int?
+  createdAt                            DateTime @default(now())
+  updatedAt                            DateTime @updatedAt
+  hunterWalletId                       Int?
+  ownerWalletId                        Int?
+  claimer                              User?    @relation("DevBounties", fields: [claimedBy], references: [id])
+  owner                                User     @relation("OwnerBounties", fields: [createdBy], references: [id])
+  HunterWalletIdToWallet Wallet?  @relation("HunterWalletIdToWallet", fields: [hunterWalletId], references: [id])
+  OwnerWalletIdToWallet  Wallet?  @relation("OwnerWalletIdToWallet", fields: [ownerWalletId], references: [id])
 }
 
-model RepositoryWebhook {
-  id            Int      @id @default(autoincrement())
-  userId        Int
-  repoOwner     String
-  repoName      String
-  webhookId     String
-  webhookSecret String
-  createdAt     DateTime @default(now())
-  
-  user          User     @relation(fields: [userId], references: [id])
-  
-  @@unique([repoOwner, repoName])
+model Wallet {
+  id                                   Int      @id @default(autoincrement())
+  userId                               Int
+  walletName                           String
+  publicKey                            String
+  encryptedPrivateKey                  String
+  iv                                   String
+  isDefault                            Boolean  @default(false)
+  createdAt                            DateTime @default(now())
+  updatedAt                            DateTime
+  HunterWalletIdToWallet               Bounty[] @relation("HunterWalletIdToWallet")
+  OwnerWalletIdToWallet                Bounty[] @relation("OwnerWalletIdToWallet")
+  User                                 User     @relation(fields: [userId], references: [id])
 }

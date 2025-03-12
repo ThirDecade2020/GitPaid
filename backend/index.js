@@ -7,6 +7,7 @@ const authRoutes = require('./routes/authRoutes');
 const bountyRoutes = require('./routes/bountyRoutes');
 const webhookRoutes = require('./routes/webhookRoutes');
 const webhookManagementRoutes = require('./routes/webhookManagementRoutes');
+const walletRoutes = require('./routes/walletRoutes');
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -32,6 +33,7 @@ app.use(passport.initialize());
 app.use('/auth', authRoutes);
 app.use('/api', bountyRoutes);
 app.use('/api', webhookManagementRoutes);
+app.use('/api/wallets', walletRoutes);
 app.use('/webhooks', webhookRoutes);
 
 // Health check (optional)

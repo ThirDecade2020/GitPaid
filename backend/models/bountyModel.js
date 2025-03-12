@@ -1,4 +1,4 @@
-const prisma = require('../config/database');
+const prisma = require('../config/database'); // Import the existing Prisma instance
 
 // Create a new bounty record in the database
 async function createBounty(data) {
@@ -7,15 +7,25 @@ async function createBounty(data) {
 
 // Get a bounty by ID
 async function getBountyById(id) {
-  return prisma.bounty.findUnique({ where: { id: id } });
+  return prisma.bounty.findUnique({ 
+    where: { id: id },
+    include: {
+      owner: true,       // Include owner details
+      claimer: true,     // Include claimer details
+      OwnerWalletIdToWallet: true, // Include owner wallet details
+      HunterWalletIdToWallet: true // Include hunter wallet details
+      // Note: escrow account is managed via environment variables, not as a wallet relation
+    }
+  });
 }
 
 // Mark a bounty as claimed by a developer
-async function markBountyClaimed(id, devId) {
+async function markBountyClaimed(id, devId, hunterWalletId) {
   return prisma.bounty.update({
     where: { id: id },
     data: {
       claimedBy: devId,
+      hunterWalletId: hunterWalletId, // Store the hunter's wallet ID
       status: 'CLAIMED'
     },
     include: { owner: true }  // include owner User details (to access owner.token)
@@ -24,12 +34,17 @@ async function markBountyClaimed(id, devId) {
 
 // Mark a bounty as completed (after approval)
 async function markBountyCompleted(id, transactionId) {
+  // Store the transaction ID in the escrowId field since there's no dedicated transactionId field
+  // This is a temporary solution - ideally, the schema should be updated to include a transactionId field
+  console.log(`Marking bounty ${id} as completed with transaction hash stored in escrowId`);
+  
   return prisma.bounty.update({
     where: { id: id },
     data: { 
       status: 'COMPLETED',
-      completedAt: new Date(),
-      transactionId: transactionId
+      // Store the transaction hash in the escrowId field since we don't have a dedicated transactionId field
+      escrowId: typeof transactionId === 'string' ? transactionId : JSON.stringify(transactionId)
+      // Note: updatedAt will be automatically updated by Prisma
     }
   });
 }
@@ -45,7 +60,11 @@ async function cancelBounty(id) {
 // Get all open (unclaimed) bounties
 async function getOpenBounties() {
   return prisma.bounty.findMany({
-    where: { status: 'OPEN' }
+    where: { status: 'OPEN' },
+    include: {
+      owner: true, // Include the owner information
+      OwnerWalletIdToWallet: true // Using the exact relation name from schema
+    }
   });
 }
 
@@ -53,8 +72,10 @@ async function getOpenBounties() {
 async function getAllBounties() {
   return prisma.bounty.findMany({
     include: {
-      owner: { select: { name: true, githubUsername: true } },
-      claimer: { select: { name: true, githubUsername: true } }
+      owner: { select: { id: true, name: true, githubUsername: true } },
+      claimer: { select: { id: true, name: true, githubUsername: true } },
+      OwnerWalletIdToWallet: true, // Owner wallet relation
+      HunterWalletIdToWallet: true // Hunter wallet relation
     }
   });
 }
@@ -69,7 +90,10 @@ async function getUserBounties(userId) {
       createdBy: userId
     },
     include: { 
-      claimer: { select: { githubUsername: true, name: true } }
+      owner: { select: { id: true, githubUsername: true, name: true } },
+      claimer: { select: { id: true, githubUsername: true, name: true } },
+      OwnerWalletIdToWallet: true, // Owner wallet relation
+      HunterWalletIdToWallet: true // Hunter wallet relation
     },
     orderBy: { createdAt: 'desc' }
   });
@@ -90,7 +114,10 @@ async function getUserBounties(userId) {
       NOT: { status: { in: ['COMPLETED', 'CANCELLED'] } }
     },
     include: { 
-      owner: { select: { githubUsername: true, name: true } }
+      owner: { select: { id: true, githubUsername: true, name: true } },
+      claimer: { select: { id: true, githubUsername: true, name: true } },
+      OwnerWalletIdToWallet: true, // Owner wallet relation
+      HunterWalletIdToWallet: true // Hunter wallet relation
     },
     orderBy: { updatedAt: 'desc' }
   });
@@ -107,6 +134,12 @@ async function getBountyByIssue(repoOwner, repoName, issueNumber) {
       repoOwner: repoOwner,
       repoName: repoName,
       issueNumber: parseInt(issueNumber, 10)
+    },
+    include: {
+      owner: { select: { id: true, githubUsername: true, name: true } },
+      claimer: { select: { id: true, githubUsername: true, name: true } },
+      OwnerWalletIdToWallet: true, // Owner wallet relation
+      HunterWalletIdToWallet: true // Hunter wallet relation
     }
   });
 }

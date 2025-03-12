@@ -1,6 +1,8 @@
 import React, { useEffect, useState } from 'react';
 import { fetchOpenBounties, claimBounty } from '../api/bounty';
+import { checkWallets } from '../api/wallet';
 import BountyList from './BountyList';
+import WalletManager from './WalletManager';
 
 const ClaimBounty = () => {
   const [bounties, setBounties] = useState([]);
@@ -8,6 +10,9 @@ const ClaimBounty = () => {
   const [loading, setLoading] = useState(true);
   const [claimingId, setClaimingId] = useState(null);
   const [searchTerm, setSearchTerm] = useState('');
+  const [selectedWalletId, setSelectedWalletId] = useState(null);
+  const [hasWallets, setHasWallets] = useState(false);
+  const [walletError, setWalletError] = useState('');
 
   useEffect(() => {
     // Load open bounties on component mount
@@ -16,6 +21,18 @@ const ClaimBounty = () => {
       try {
         const openBounties = await fetchOpenBounties();
         setBounties(openBounties);
+        
+        // Check if user has wallets
+        try {
+          const hasWalletsResult = await checkWallets();
+          setHasWallets(hasWalletsResult);
+          if (!hasWalletsResult) {
+            setWalletError('You need to create a wallet before you can claim a bounty.');
+          }
+        } catch (err) {
+          console.error('Error checking wallets:', err);
+          setWalletError('Failed to check if you have wallets. Please try again.');
+        }
       } catch (err) {
         console.error('Failed to fetch open bounties');
         setError('Failed to load open bounties');
@@ -26,11 +43,25 @@ const ClaimBounty = () => {
     loadBounties();
   }, []);
 
+  const handleWalletSelect = (walletId) => {
+    setSelectedWalletId(walletId);
+    // Clear wallet error if a wallet is selected
+    if (walletId) {
+      setWalletError('');
+    }
+  };
+
   const handleClaim = async (bountyId) => {
     setError('');
+    
+    if (!selectedWalletId) {
+      setWalletError('Please select a wallet to claim this bounty');
+      return;
+    }
+    
     setClaimingId(bountyId);
     try {
-      await claimBounty(bountyId);
+      await claimBounty(bountyId, selectedWalletId);
       // Remove the claimed bounty from the list
       setBounties(prev => prev.filter(b => b.id !== bountyId));
       
@@ -66,6 +97,52 @@ const ClaimBounty = () => {
       <div className="bg-[#1e293b] rounded-xl p-6 shadow-lg border border-[#334155] mb-8">
         <h2 className="text-2xl font-bold text-white mb-2">Open Bounties</h2>
         <p className="text-gray-400">Browse and claim available bounties from the community</p>
+      </div>
+      
+      {/* Wallet Selection Section */}
+      <div className="bg-[#1e293b] rounded-xl p-6 shadow-lg border border-[#334155] mb-8">
+        <div className="flex justify-between items-center mb-4">
+          <h3 className="text-xl font-semibold text-white">Select Wallet for Claiming</h3>
+        </div>
+        
+        {walletError && (
+          <div className="p-4 mb-4 bg-red-900 bg-opacity-20 border border-red-800 rounded-lg">
+            <p className="text-red-400">{walletError}</p>
+          </div>
+        )}
+        
+        {/* Current Wallet Display */}
+        <div className="mb-4 p-4 bg-[#0f172a] rounded-lg border border-[#334155]">
+          <p className="text-gray-400 mb-2">Currently Selected Wallet:</p>
+          {selectedWalletId ? (
+            <div className="flex items-center">
+              <div className="bg-blue-600 p-2 rounded-full mr-3">
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z" />
+                </svg>
+              </div>
+              <span className="text-white font-medium">Wallet ID: {selectedWalletId}</span>
+            </div>
+          ) : (
+            <div className="text-yellow-500 flex items-center">
+              <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mr-2" viewBox="0 0 20 20" fill="currentColor">
+                <path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
+              </svg>
+              <span>No wallet selected</span>
+            </div>
+          )}
+        </div>
+        
+        <div className="mb-4">
+          <p className="text-gray-400 mb-2">You must select a wallet to claim bounties. This wallet will receive the funds when the bounty is completed.</p>
+        </div>
+        
+        <WalletManager 
+          onWalletSelect={handleWalletSelect} 
+          selectedWalletId={selectedWalletId}
+          showCreateForm={!hasWallets}
+          buttonText="Choose Wallet"
+        />
       </div>
       
       {error && (

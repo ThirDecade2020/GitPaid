@@ -1,8 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { createBounty, fetchUserRepos, fetchRepoIssues } from '../api/bounty';
 import { getCurrentUser } from '../api/auth';
+import { checkWallets } from '../api/wallet';
 import { useRouter } from 'next/router';
 import Select from 'react-select';
+import WalletManager from './WalletManager';
 
 const CreateBountyForm = () => {
   const router = useRouter();
@@ -10,7 +12,8 @@ const CreateBountyForm = () => {
     repoOwner: '',
     repoName: '',
     issueNumber: '',
-    amount: ''
+    amount: '',
+    ownerWalletId: null
   });
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
@@ -19,6 +22,8 @@ const CreateBountyForm = () => {
   const [issues, setIssues] = useState([]);
   const [selectedRepo, setSelectedRepo] = useState(null);
   const [selectedIssue, setSelectedIssue] = useState(null);
+  const [hasWallets, setHasWallets] = useState(false);
+  const [walletError, setWalletError] = useState('');
 
   // Fetch user data and repositories on component mount
   useEffect(() => {
@@ -35,6 +40,18 @@ const CreateBountyForm = () => {
         if (!token) {
           router.push('/');
           return;
+        }
+        
+        // Check if user has wallets
+        try {
+          const hasWalletsResult = await checkWallets();
+          setHasWallets(hasWalletsResult);
+          if (!hasWalletsResult) {
+            setWalletError('You need to create a wallet before you can post a bounty.');
+          }
+        } catch (err) {
+          console.error('Error checking wallets:', err);
+          setWalletError('Failed to check if you have wallets. Please try again.');
         }
 
         // Get user profile using our dedicated service
@@ -121,12 +138,25 @@ const CreateBountyForm = () => {
     setForm(prev => ({ ...prev, amount: e.target.value }));
   };
 
+  const handleWalletSelect = (walletId) => {
+    setForm(prev => ({ ...prev, ownerWalletId: walletId }));
+    // Clear wallet error if a wallet is selected
+    if (walletId) {
+      setWalletError('');
+    }
+  };
+
   const handleSubmit = async (e) => {
     e.preventDefault();
     setError('');
     
     if (!form.repoOwner || !form.repoName || !form.issueNumber || !form.amount) {
       setError('All fields are required');
+      return;
+    }
+    
+    if (!form.ownerWalletId) {
+      setWalletError('Please select a wallet for this bounty');
       return;
     }
     
@@ -322,6 +352,22 @@ const CreateBountyForm = () => {
                 />
               </div>
               <p className="text-xs text-gray-500 mt-2">Enter the amount in ETH (e.g. 0.1, 1.5, etc.)</p>
+            </div>
+          </div>
+          
+          <div className="bg-[#0f172a] rounded-lg p-6 border border-[#334155]">
+            <div className="mb-2">
+              <label className="block font-medium mb-2 text-gray-300">Select Wallet</label>
+              {walletError && (
+                <div className="p-3 mb-4 bg-red-900 bg-opacity-20 border border-red-800 rounded-lg">
+                  <p className="text-red-400 text-sm">{walletError}</p>
+                </div>
+              )}
+              <WalletManager 
+                onWalletSelect={handleWalletSelect} 
+                selectedWalletId={form.ownerWalletId}
+                showCreateForm={!hasWallets}
+              />
             </div>
           </div>
           

@@ -148,9 +148,16 @@ router.post('/github', verifyGitHubWebhook, async (req, res) => {
     console.log(`Claimer found: ${claimer.username}`);
     console.log(`Releasing escrow ${bounty.escrowId} to user ${claimerId}`);
     
-    // Release the funds to the claimer
+    // Release the funds to the claimer using their specified wallet
     try {
-      const releaseResult = await releaseEscrow(bounty.escrowId, claimerId, bounty.amount);
+      // Check if the bounty has a hunter wallet ID
+      if (!bounty.hunterWalletId) {
+        console.log('No hunter wallet ID found for this bounty, cannot release funds');
+        return res.status(400).json({ message: 'No hunter wallet ID found for this bounty, cannot release funds' });
+      }
+      
+      console.log(`Using hunter wallet ID: ${bounty.hunterWalletId} for payment`);
+      const releaseResult = await releaseEscrow(bounty.escrowId, claimerId, bounty.amount, bounty.hunterWalletId);
       console.log('Escrow release result:', JSON.stringify(releaseResult, null, 2));
       
       // Mark the bounty as completed
@@ -239,9 +246,16 @@ router.post('/github/:owner/:repo', verifyGitHubWebhook, async (req, res) => {
     console.log(`Claimer found: ${claimer.githubUsername}`);
     console.log(`Releasing escrow ${bounty.escrowId} to user ${claimerId}`);
     
-    // Release the funds to the claimer
+    // Release the funds to the claimer using their specified wallet
     try {
-      const releaseResult = await releaseEscrow(bounty.escrowId, claimerId, bounty.amount);
+      // Check if the bounty has a hunter wallet ID
+      if (!bounty.hunterWalletId) {
+        console.log('No hunter wallet ID found for this bounty, cannot release funds');
+        return res.status(400).json({ message: 'No hunter wallet ID found for this bounty, cannot release funds' });
+      }
+      
+      console.log(`Using hunter wallet ID: ${bounty.hunterWalletId} for payment`);
+      const releaseResult = await releaseEscrow(bounty.escrowId, claimerId, bounty.amount, bounty.hunterWalletId);
       console.log('Escrow release result:', JSON.stringify(releaseResult, null, 2));
       
       // Mark the bounty as completed

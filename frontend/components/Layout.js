@@ -78,6 +78,15 @@ const Layout = ({ children }) => {
                   Review
                 </span>
               </Link>
+              <Link href="/wallets">
+                <span className={`px-3 py-2 rounded-md text-sm font-medium ${
+                  router.pathname === '/wallets' 
+                    ? 'bg-[#3b82f6] text-white' 
+                    : 'text-gray-300 hover:bg-[#334155] hover:text-white'
+                } cursor-pointer transition-colors duration-200`}>
+                  Wallets
+                </span>
+              </Link>
               
               {/* User Menu */}
               <div className="ml-3 relative flex items-center">

@@ -42,7 +42,8 @@ export async function createBounty(data) {
     repo_owner: data.repoOwner,
     repo_name: data.repoName,
     issue_number: data.issueNumber,
-    amount: data.amount
+    amount: data.amount,
+    walletId: data.ownerWalletId  // Using walletId as expected by the backend
   };
   
   console.log('Sending bounty creation request with data:', backendData);
@@ -50,8 +51,8 @@ export async function createBounty(data) {
 }
 
 // Claim a bounty by ID
-export async function claimBounty(bountyId) {
-  return API.post(`/api/bounty/${bountyId}/claim`);
+export async function claimBounty(bountyId, hunterWalletId) {
+  return API.post(`/api/bounty/${bountyId}/claim`, { walletId: hunterWalletId });
 }
 
 // Complete a bounty by ID (approve and release payment)

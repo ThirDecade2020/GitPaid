@@ -16,14 +16,19 @@ const radius = require('../config/radius');
 // Create a new bounty (by repository owner)
 async function createBounty(req, res) {
   try {
-    const { repo_owner, repo_name, issue_number, amount } = req.body;
-    console.log('Received bounty creation request:', { repo_owner, repo_name, issue_number, amount });
+    const { repo_owner, repo_name, issue_number, amount, walletId } = req.body;
+    console.log('Received bounty creation request:', { repo_owner, repo_name, issue_number, amount, walletId });
     
     const userId = req.user.id;
     // Fetch the creating user's details (for GitHub token and Radius ID)
     const user = await getUserById(userId);
     if (!user) {
       return res.status(401).json({ error: 'User not found' });
+    }
+    
+    // Validate wallet ID
+    if (!walletId) {
+      return res.status(400).json({ error: 'Wallet ID is required' });
     }
     
     // Verify the GitHub issue exists and is open
@@ -42,11 +47,11 @@ async function createBounty(req, res) {
         return res.status(400).json({ error: 'Issue is not open or not found' });
       }
       
-      // Lock funds in escrow via Radius API
-      const escrowId = await radius.createEscrow(userId, amount);
-      console.log('Funds locked in escrow with ID:', escrowId);
+      // Lock funds in escrow via Radius API using the selected wallet
+      const escrowId = await radius.createEscrow(userId, amount, walletId);
+      console.log('Funds locked in escrow with ID:', escrowId, 'using wallet:', walletId);
       
-      // Create bounty record in the database
+      // Create bounty record in the database with wallet information
       const bounty = await createBountyModel({
         repoOwner: repo_owner,
         repoName: repo_name,
@@ -55,7 +60,8 @@ async function createBounty(req, res) {
         currency: 'USD',
         status: 'OPEN',
         escrowId: escrowId,
-        createdBy: userId
+        createdBy: userId,
+        ownerWalletId: walletId // Store the wallet ID used for creating the bounty
       });
       
       return res.status(201).json({ bounty });
@@ -77,7 +83,13 @@ async function createBounty(req, res) {
 async function claimBounty(req, res) {
   try {
     const { bountyId } = req.params;
+    const { walletId } = req.body; // Get the wallet ID from the request body
     const userId = req.user.id;
+    
+    // Validate wallet ID
+    if (!walletId) {
+      return res.status(400).json({ error: 'Wallet ID is required' });
+    }
     
     // Fetch the bounty
     const bounty = await getBountyById(parseInt(bountyId));
@@ -90,8 +102,8 @@ async function claimBounty(req, res) {
       return res.status(400).json({ error: `Bounty is not open (status: ${bounty.status})` });
     }
     
-    // Mark as claimed in the database
-    const updatedBounty = await markBountyClaimed(parseInt(bountyId), userId);
+    // Mark as claimed in the database with the hunter's wallet ID
+    const updatedBounty = await markBountyClaimed(parseInt(bountyId), userId, walletId);
     
     return res.status(200).json({ bounty: updatedBounty });
   } catch (error) {
@@ -105,6 +117,8 @@ async function completeBounty(req, res) {
   try {
     const { bountyId } = req.params;
     const userId = req.user.id;
+    // Note: Escrow account is managed via environment variables (RADIUS_ESCROW_API_KEY)
+    // not as a wallet database entry
     
     // Fetch the bounty
     const bounty = await getBountyById(parseInt(bountyId));
@@ -122,12 +136,22 @@ async function completeBounty(req, res) {
       return res.status(400).json({ error: `Bounty cannot be completed (status: ${bounty.status})` });
     }
     
-    // Release funds from escrow to the developer
-    const releaseResult = await radius.releaseEscrow(bounty.escrowId, bounty.claimedBy, bounty.amount);
-    console.log('Escrow released:', releaseResult);
+    // Release funds from escrow to the developer using the hunter's wallet
+    const releaseResult = await radius.releaseEscrow(
+      bounty.escrowId, 
+      bounty.claimedBy, 
+      bounty.amount, 
+      bounty.hunterWalletId // Use the wallet ID stored when the bounty was claimed
+    );
+    console.log('Escrow released to wallet:', bounty.hunterWalletId, 'Result:', releaseResult);
     
     // Mark as completed in the database
-    const updatedBounty = await markBountyCompleted(parseInt(bountyId), releaseResult.transaction);
+    // Convert the transaction object to a string if it's not already
+    const transactionId = typeof releaseResult.transaction === 'object' ? 
+      JSON.stringify(releaseResult.transaction) : releaseResult.transaction;
+    
+    console.log('Marking bounty as completed with transaction ID:', transactionId);
+    const updatedBounty = await markBountyCompleted(parseInt(bountyId), transactionId);
     
     return res.status(200).json({
       bounty: updatedBounty,
@@ -144,6 +168,7 @@ async function cancelBounty(req, res) {
   try {
     const { bountyId } = req.params;
     const userId = req.user.id;
+    const { refundWalletId } = req.body; // Optional wallet ID to refund to
     
     // Fetch the bounty
     const bounty = await getBountyById(parseInt(bountyId));
@@ -161,9 +186,17 @@ async function cancelBounty(req, res) {
       return res.status(400).json({ error: `Bounty cannot be cancelled (status: ${bounty.status})` });
     }
     
-    // Refund from escrow to the owner
-    const refundResult = await radius.refundEscrow(bounty.escrowId, userId, bounty.amount);
-    console.log('Escrow refunded:', refundResult);
+    // Determine which wallet to refund to
+    const walletIdToUse = refundWalletId || bounty.ownerWalletId;
+    
+    // Refund from escrow to the owner's wallet
+    const refundResult = await radius.refundEscrow(
+      bounty.escrowId, 
+      userId, 
+      bounty.amount, 
+      walletIdToUse
+    );
+    console.log('Escrow refunded to wallet:', walletIdToUse, 'Result:', refundResult);
     
     // Mark as cancelled in the database
     const updatedBounty = await cancelBountyModel(parseInt(bountyId));
